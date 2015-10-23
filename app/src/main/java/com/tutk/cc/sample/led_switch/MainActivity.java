@@ -1,5 +1,6 @@
 package com.tutk.cc.sample.led_switch;
 
+import android.content.SharedPreferences;
 import android.support.v7.app.ActionBarActivity;
 import android.os.Bundle;
 import android.util.Log;
@@ -26,6 +27,8 @@ public class MainActivity extends ActionBarActivity implements P2PTunnelAPIs.IP2
     static final String USER = "Tutk.com";      // refer to P2PTunnelServer.c
     static final String PWD = "P2P Platform";   // refer to P2PTunnelServer.c
 
+    int localPort = 8080;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -36,7 +39,10 @@ public class MainActivity extends ActionBarActivity implements P2PTunnelAPIs.IP2
         final Button btnOff= (Button)findViewById(R.id.btnOff);
         final Button btnConnect = (Button)findViewById(R.id.btnConnect);
 
-        edtUID.setText("FP2X9XRPXNAAUMPLSTW1");
+        // Load UID from SharedPreference
+        SharedPreferences sharedPreferences = getSharedPreferences("Preference", 0);
+        String UID = sharedPreferences.getString("UID", "");
+        edtUID.setText(UID);
 
         // Disable these LED switch buttons
         btnOn.setEnabled(false);
@@ -49,7 +55,10 @@ public class MainActivity extends ActionBarActivity implements P2PTunnelAPIs.IP2
         btnConnect.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                if (edtUID.length() == 20) {
+                final String UID = edtUID.getText().toString();
+                if (UID.length() == 20) {
+                    // Save UID to SharedPrefernce
+                    getSharedPreferences("Preference", 0).edit().putString("UID", UID).commit();
 
                     // Disable the connect button
                     refreshConnectButtonStatus(false);
@@ -58,22 +67,27 @@ public class MainActivity extends ActionBarActivity implements P2PTunnelAPIs.IP2
                     new Thread(new Runnable() {
                         @Override
                         public void run() {
-                            String UID = edtUID.getText().toString();
                             int ret = 0;
                             int[] errFromDevice = new int[1];
 
                             ret = api.P2PTunnelAgent_Connect(UID, getAuthData(USER, PWD), getAuthDataLength(), errFromDevice);
                             if (ret >= 0) {
-                                int idx = api.P2PTunnelAgent_PortMapping(ret, 8080, 8080);
-                                if (idx >= 0) {
-                                    Log.d(TAG, "Session connected");
-
-                                    // Enable LED buttons
-                                    refreshLEDButtonStatus(true);
-                                } else {
-                                    // Enable the connection button
-                                    refreshConnectButtonStatus(true);
-                                    Log.d(TAG, "Failed to mapping ports");
+                                while (true) {
+                                    int idx = api.P2PTunnelAgent_PortMapping(ret, localPort, 8080);
+                                    if (idx >= 0) {
+                                        Log.d(TAG, "Session connected");
+                                        // Enable LED buttons
+                                        refreshLEDButtonStatus(true);
+                                        break;
+                                    } else if (idx == P2PTunnelAPIs.TUNNEL_ER_BIND_LOCAL_SERVICE) {
+                                        localPort++;
+                                        continue;
+                                    } else {
+                                        // Enable the connection button
+                                        refreshConnectButtonStatus(true);
+                                        Log.d(TAG, "Failed to mapping ports");
+                                        break;
+                                    }
                                 }
                             } else if (ret == P2PTunnelAPIs.TUNNEL_ER_AUTH_FAILED) {
                                 if (errFromDevice[0] == -888) {
@@ -99,7 +113,8 @@ public class MainActivity extends ActionBarActivity implements P2PTunnelAPIs.IP2
             @Override
             public void onClick(View view) {
                 // Send http request to the WRTnode.
-                StringRequest request = new StringRequest(Request.Method.GET, "http://127.0.0.1:8080/led/on",
+                String url = String.format("http://127.0.0.1:%s/led/on", localPort);
+                StringRequest request = new StringRequest(Request.Method.GET, url,
                         new Response.Listener<String>() {
                             @Override
                             public void onResponse(String response) {
@@ -107,10 +122,10 @@ public class MainActivity extends ActionBarActivity implements P2PTunnelAPIs.IP2
                             }
                         },
                         new Response.ErrorListener() {
-                                @Override
-                                public void onErrorResponse(VolleyError error) {
-                                    Log.d(TAG, "That didn't work!");
-                                }
+                            @Override
+                            public void onErrorResponse(VolleyError error) {
+                                Log.d(TAG, "That didn't work!");
+                            }
                         }
                 );
 
@@ -122,7 +137,8 @@ public class MainActivity extends ActionBarActivity implements P2PTunnelAPIs.IP2
             @Override
             public void onClick(View view) {
                 // Send http request to the WRTnode.
-                StringRequest request = new StringRequest(Request.Method.GET, "http://127.0.0.1:8080/led/off",
+                String url = String.format("http://127.0.0.1:%s/led/off", localPort);
+                StringRequest request = new StringRequest(Request.Method.GET, url,
                         new Response.Listener<String>() {
                             @Override
                             public void onResponse(String response) {
